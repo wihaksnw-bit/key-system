@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
+
+<title>Eclipse Hub — Get Key</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    font-family:
+        Inter,
+        Arial,
+        sans-serif;
+
+    color: white;
+
+    background:
+        radial-gradient(
+            circle at 20% 20%,
+            rgba(130, 55, 255, .35),
+            transparent 35%
+        ),
+        radial-gradient(
+            circle at 80% 80%,
+            rgba(210, 45, 255, .25),
+            transparent 35%
+        ),
+        #08070d;
+}
+
+.card {
+
+    width: min(460px, 92vw);
+
+    padding: 32px;
+
+    border-radius: 24px;
+
+    background:
+        rgba(255,255,255,.055);
+
+    border:
+        1px solid rgba(255,255,255,.10);
+
+    box-shadow:
+        0 30px 100px rgba(0,0,0,.55);
+
+    backdrop-filter:
+        blur(20px);
+}
+
+.logo {
+
+    font-size: 12px;
+
+    letter-spacing: 5px;
+
+    color: #b997ff;
+
+    margin-bottom: 8px;
+}
+
+h1 {
+
+    margin: 0;
+
+    font-size: 32px;
+}
+
+.description {
+
+    color: #aaa7b7;
+
+    line-height: 1.6;
+
+    margin:
+        12px 0 24px;
+}
+
+button {
+
+    width: 100%;
+
+    padding: 15px;
+
+    border: 0;
+
+    border-radius: 13px;
+
+    cursor: pointer;
+
+    color: white;
+
+    font-size: 15px;
+
+    font-weight: 700;
+
+    background:
+        linear-gradient(
+            135deg,
+            #733cff,
+            #c42dff
+        );
+
+    transition:
+        transform .15s,
+        opacity .15s;
+}
+
+button:hover {
+
+    transform:
+        translateY(-2px);
+}
+
+button:disabled {
+
+    opacity: .6;
+
+    cursor: default;
+
+    transform: none;
+}
+
+.key {
+
+    display: none;
+
+    margin-top: 18px;
+
+    padding: 15px;
+
+    border-radius: 13px;
+
+    background:
+        rgba(0,0,0,.35);
+
+    border:
+        1px solid rgba(255,255,255,.08);
+
+    font-family:
+        monospace;
+
+    font-size: 14px;
+
+    word-break: break-all;
+
+    text-align: center;
+}
+
+.copy {
+
+    display: none;
+
+    margin-top: 10px;
+
+    background:
+        rgba(255,255,255,.08);
+
+    border:
+        1px solid rgba(255,255,255,.1);
+}
+
+.status {
+
+    margin-top: 15px;
+
+    text-align: center;
+
+    color: #9995a7;
+
+    font-size: 13px;
+}
+
+.warning {
+
+    margin-top: 20px;
+
+    color: #777383;
+
+    font-size: 11px;
+
+    text-align: center;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="card">
+
+    <div class="logo">
+        ECLIPSE HUB
+    </div>
+
+    <h1>
+        Get your key
+    </h1>
+
+    <div class="description">
+        Generate a temporary access key for
+        Eclipse Hub. Your key will be valid
+        for 24 hours.
+    </div>
+
+    <button id="generate">
+        GENERATE KEY
+    </button>
+
+    <div
+        id="key"
+        class="key"
+    ></div>
+
+    <button
+        id="copy"
+        class="copy"
+    >
+        COPY KEY
+    </button>
+
+    <div
+        id="status"
+        class="status"
+    ></div>
+
+    <div class="warning">
+        Do not share your generated key.
+    </div>
+
+</div>
+
+<script>
+
+const generate =
+    document.getElementById("generate");
+
+const keyElement =
+    document.getElementById("key");
+
+const copy =
+    document.getElementById("copy");
+
+const status =
+    document.getElementById("status");
+
+let currentKey = "";
+
+generate.onclick = async () => {
+
+    generate.disabled = true;
+
+    generate.textContent =
+        "GENERATING...";
+
+    status.textContent = "";
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/keys/public-generate",
+                {
+                    method: "POST"
+                }
+            );
+
+        const data =
+            await response.json();
+
+        if (!response.ok || !data.success) {
+
+            throw new Error(
+                data.error ||
+                "Could not generate key."
+            );
+
+        }
+
+        currentKey =
+            data.key;
+
+        keyElement.textContent =
+            currentKey;
+
+        keyElement.style.display =
+            "block";
+
+        copy.style.display =
+            "block";
+
+        status.textContent =
+            "Key generated successfully.";
+
+    } catch (error) {
+
+        status.textContent =
+            error.message;
+
+    } finally {
+
+        generate.disabled =
+            false;
+
+        generate.textContent =
+            "GENERATE KEY";
+
+    }
+
+};
+
+copy.onclick = async () => {
+
+    if (!currentKey)
+        return;
+
+    try {
+
+        await navigator.clipboard
+            .writeText(currentKey);
+
+        status.textContent =
+            "Key copied.";
+
+    } catch {
+
+        status.textContent =
+            "Copy failed. Select the key manually.";
+
+    }
+
+};
+
+</script>
+
+</body>
+
+</html>
