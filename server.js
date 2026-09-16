@@ -16,6 +16,23 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 /*
+    ROOT ROUTE - This fixes your "Cannot GET /" error
+*/
+app.get("/", (req, res) => {
+    res.json({
+        message: "Eclipse Key System is running",
+        version: "1.0.0",
+        endpoints: {
+            public: "/api/keys/public-generate (POST)",
+            claim: "/api/keys/claim (POST)",
+            check: "/api/keys/check (GET)",
+            health: "/api/health (GET)",
+            admin: "/api/keys/generate (POST - requires x-admin-token header)"
+        }
+    });
+});
+
+/*
     Demo storage.
 
     IMPORTANT:
