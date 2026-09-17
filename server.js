@@ -349,4 +349,3 @@ app.listen(PORT, "0.0.0.0", () => {
     console.log(`✅ Eclipse Hub Key System running on port ${PORT}`);
     console.log(`🌐 Port: ${PORT}`);
 });
-```
