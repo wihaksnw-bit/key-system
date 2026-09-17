@@ -1,3 +1,4 @@
+```js
 const express = require("express");
 const crypto = require("crypto");
 const path = require("path");
@@ -7,25 +8,47 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
 
+// ==========================================
+// CONFIG
+// ==========================================
+
 if (!ADMIN_TOKEN) {
     console.error("❌ ADMIN_TOKEN environment variable is missing.");
     process.exit(1);
 }
 
+// ==========================================
+// MIDDLEWARE
+// ==========================================
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve website from /public
-app.use(express.static(path.join(__dirname, "public")));
+const publicPath = path.join(__dirname, "public");
 
-// Temporary in-memory key storage
+// Serve files from /public
+app.use(express.static(publicPath));
+
+// ==========================================
+// HOMEPAGE
+// ==========================================
+
+app.get("/", (req, res) => {
+    res.sendFile(path.join(publicPath, "index.html"));
+});
+
+// ==========================================
+// KEY STORAGE
+// ==========================================
+
+// Temporary storage.
+// WARNING: Keys disappear when the server restarts.
 const keys = new Map();
 
-/*
-    Generates keys like:
+// ==========================================
+// KEY GENERATOR
+// ==========================================
 
-    ECLIPSE-A1B2C3D4-E5F6A7B8-C9D0E1F2
-*/
 function generateKey() {
     const part = () =>
         crypto.randomBytes(4).toString("hex").toUpperCase();
@@ -33,9 +56,10 @@ function generateKey() {
     return `ECLIPSE-${part()}-${part()}-${part()}`;
 }
 
-/*
-    Remove expired keys periodically
-*/
+// ==========================================
+// CLEAN EXPIRED KEYS
+// ==========================================
+
 function cleanupExpiredKeys() {
     const now = Date.now();
 
@@ -46,17 +70,13 @@ function cleanupExpiredKeys() {
     }
 }
 
+// Clean expired keys every hour
 setInterval(cleanupExpiredKeys, 60 * 60 * 1000);
 
-/*
-    ==========================================
-    PUBLIC KEY GENERATION
-    ==========================================
-    
-    POST /api/keys/public-generate
+// ==========================================
+// PUBLIC KEY GENERATION
+// ==========================================
 
-    Generates a 24-hour key.
-*/
 app.post("/api/keys/public-generate", (req, res) => {
     try {
         const key = generateKey();
@@ -70,34 +90,26 @@ app.post("/api/keys/public-generate", (req, res) => {
             used: false
         });
 
-        return res.json({
+        res.json({
             success: true,
             key,
             expiresAt: new Date(expiresAt).toISOString()
         });
 
     } catch (error) {
-        console.error("Key generation error:", error);
+        console.error("Public key generation error:", error);
 
-        return res.status(500).json({
+        res.status(500).json({
             success: false,
             error: "Failed to generate key"
         });
     }
 });
 
-/*
-    ==========================================
-    CLAIM / VALIDATE KEY
-    ==========================================
+// ==========================================
+// CLAIM / VALIDATE KEY
+// ==========================================
 
-    POST /api/keys/claim
-
-    Body:
-    {
-        "key": "ECLIPSE-XXXX-XXXX-XXXX"
-    }
-*/
 app.post("/api/keys/claim", (req, res) => {
     try {
         const key = String(req.body?.key || "")
@@ -130,7 +142,7 @@ app.post("/api/keys/claim", (req, res) => {
             });
         }
 
-        // Check if already used
+        // Check whether key was already used
         if (record.used) {
             return res.status(409).json({
                 valid: false,
@@ -158,13 +170,10 @@ app.post("/api/keys/claim", (req, res) => {
     }
 });
 
-/*
-    ==========================================
-    CHECK KEY
-    ==========================================
+// ==========================================
+// CHECK KEY
+// ==========================================
 
-    GET /api/keys/check?key=ECLIPSE-XXXX-XXXX-XXXX
-*/
 app.get("/api/keys/check", (req, res) => {
     try {
         const key = String(req.query.key || "")
@@ -187,6 +196,7 @@ app.get("/api/keys/check", (req, res) => {
             });
         }
 
+        // Check expiration
         if (Date.now() >= record.expiresAt) {
             keys.delete(key);
 
@@ -212,21 +222,10 @@ app.get("/api/keys/check", (req, res) => {
     }
 });
 
-/*
-    ==========================================
-    ADMIN KEY GENERATION
-    ==========================================
+// ==========================================
+// ADMIN GENERATE KEY
+// ==========================================
 
-    POST /api/keys/generate
-
-    Header:
-    x-admin-token: YOUR_ADMIN_TOKEN
-
-    Body:
-    {
-        "hours": 24
-    }
-*/
 app.post("/api/keys/generate", (req, res) => {
     try {
         const token = req.headers["x-admin-token"];
@@ -276,21 +275,10 @@ app.post("/api/keys/generate", (req, res) => {
     }
 });
 
-/*
-    ==========================================
-    DELETE KEY
-    ==========================================
+// ==========================================
+// ADMIN DELETE KEY
+// ==========================================
 
-    POST /api/keys/delete
-
-    Header:
-    x-admin-token: YOUR_ADMIN_TOKEN
-
-    Body:
-    {
-        "key": "ECLIPSE-XXXX-XXXX-XXXX"
-    }
-*/
 app.post("/api/keys/delete", (req, res) => {
     try {
         const token = req.headers["x-admin-token"];
@@ -330,35 +318,35 @@ app.post("/api/keys/delete", (req, res) => {
     }
 });
 
-/*
-    ==========================================
-    HEALTH CHECK
-    ==========================================
-*/
+// ==========================================
+// HEALTH CHECK
+// ==========================================
+
 app.get("/api/health", (req, res) => {
-    return res.json({
+    res.json({
         online: true,
         service: "Eclipse Hub Key System",
         uptime: process.uptime()
     });
 });
 
-/*
-    ==========================================
-    404 API HANDLER
-    ==========================================
-*/
+// ==========================================
+// UNKNOWN API ROUTES
+// ==========================================
+
 app.use("/api", (req, res) => {
-    return res.status(404).json({
+    res.status(404).json({
+        success: false,
         error: "API endpoint not found"
     });
 });
 
-/*
-    ==========================================
-    START SERVER
-    ==========================================
-*/
+// ==========================================
+// START SERVER
+// ==========================================
+
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Eclipse Hub Key System running on port ${PORT}`);
+    console.log(`✅ Eclipse Hub Key System running on port ${PORT}`);
+    console.log(`🌐 Port: ${PORT}`);
 });
+```
