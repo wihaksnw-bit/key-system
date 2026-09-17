@@ -128,7 +128,7 @@ app.use('/api', (req, res) => {
 });
 
 // Catch-all for other routes (serve index.html for SPA support)
-app.get('*', (req, res) => {
+app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
