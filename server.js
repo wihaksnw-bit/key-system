@@ -1,350 +1,144 @@
-const express = require("express");
-const crypto = require("crypto");
-const path = require("path");
+const express = require('express');
+const path = require('path');
+require('dotenv').config();
 
 const app = express();
+const PORT = process.env.PORT || 10000;
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'your-secure-token-here';
 
-const PORT = process.env.PORT || 3000;
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
-
-// ==========================================
-// CONFIG
-// ==========================================
-
-if (!ADMIN_TOKEN) {
-    console.error("❌ ADMIN_TOKEN environment variable is missing.");
-    process.exit(1);
-}
-
-// ==========================================
-// MIDDLEWARE
-// ==========================================
-
+// Middleware
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
 
-const publicPath = path.join(__dirname, "public");
-
-// Serve files from /public
-app.use(express.static(publicPath));
-
-// ==========================================
-// HOMEPAGE
-// ==========================================
-
-app.get("/", (req, res) => {
-    res.sendFile(path.join(publicPath, "index.html"));
-});
-
-// ==========================================
-// KEY STORAGE
-// ==========================================
-
-// Temporary storage.
-// WARNING: Keys disappear when the server restarts.
+// In-memory key storage (replace with database in production)
 const keys = new Map();
 
-// ==========================================
-// KEY GENERATOR
-// ==========================================
-
+// Helper: Generate a random key
 function generateKey() {
-    const part = () =>
-        crypto.randomBytes(4).toString("hex").toUpperCase();
-
-    return `ECLIPSE-${part()}-${part()}-${part()}`;
+  return `ECLIPSE-${Math.random().toString(36).substring(2, 15)}${Math.random().toString(36).substring(2, 15)}`.toUpperCase();
 }
 
-// ==========================================
-// CLEAN EXPIRED KEYS
-// ==========================================
-
-function cleanupExpiredKeys() {
-    const now = Date.now();
-
-    for (const [key, data] of keys.entries()) {
-        if (now >= data.expiresAt) {
-            keys.delete(key);
-        }
-    }
+// Helper: Validate admin token
+function validateAdminToken(token) {
+  return token === ADMIN_TOKEN;
 }
 
-// Clean expired keys every hour
-setInterval(cleanupExpiredKeys, 60 * 60 * 1000);
+// Routes
 
-// ==========================================
-// PUBLIC KEY GENERATION
-// ==========================================
-
-app.post("/api/keys/public-generate", (req, res) => {
-    try {
-        const key = generateKey();
-
-        const createdAt = Date.now();
-        const expiresAt = createdAt + 24 * 60 * 60 * 1000;
-
-        keys.set(key, {
-            createdAt,
-            expiresAt,
-            used: false
-        });
-
-        res.json({
-            success: true,
-            key,
-            expiresAt: new Date(expiresAt).toISOString()
-        });
-
-    } catch (error) {
-        console.error("Public key generation error:", error);
-
-        res.status(500).json({
-            success: false,
-            error: "Failed to generate key"
-        });
-    }
+// Serve index.html on root
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ==========================================
-// CLAIM / VALIDATE KEY
-// ==========================================
-
-app.post("/api/keys/claim", (req, res) => {
-    try {
-        const key = String(req.body?.key || "")
-            .trim()
-            .toUpperCase();
-
-        if (!key) {
-            return res.status(400).json({
-                valid: false,
-                error: "Missing key"
-            });
-        }
-
-        const record = keys.get(key);
-
-        if (!record) {
-            return res.status(404).json({
-                valid: false,
-                error: "Invalid key"
-            });
-        }
-
-        // Check expiration
-        if (Date.now() >= record.expiresAt) {
-            keys.delete(key);
-
-            return res.status(410).json({
-                valid: false,
-                error: "Key expired"
-            });
-        }
-
-        // Check whether key was already used
-        if (record.used) {
-            return res.status(409).json({
-                valid: false,
-                error: "Key already used"
-            });
-        }
-
-        // Mark key as used
-        record.used = true;
-
-        return res.json({
-            valid: true,
-            success: true,
-            message: "Key accepted",
-            expiresAt: new Date(record.expiresAt).toISOString()
-        });
-
-    } catch (error) {
-        console.error("Key validation error:", error);
-
-        return res.status(500).json({
-            valid: false,
-            error: "Internal server error"
-        });
-    }
+// Public: Generate a key (limited)
+app.post('/api/keys/public-generate', (req, res) => {
+  const key = generateKey();
+  keys.set(key, { claimed: false, createdAt: new Date() });
+  res.json({ success: true, key });
 });
 
-// ==========================================
-// CHECK KEY
-// ==========================================
+// Public: Claim/validate a key
+app.post('/api/keys/claim', (req, res) => {
+  const { key } = req.body;
+  if (!key) {
+    return res.status(400).json({ success: false, message: 'Key is required' });
+  }
 
-app.get("/api/keys/check", (req, res) => {
-    try {
-        const key = String(req.query.key || "")
-            .trim()
-            .toUpperCase();
+  const keyData = keys.get(key);
+  if (!keyData) {
+    return res.status(404).json({ success: false, message: 'Key not found' });
+  }
 
-        if (!key) {
-            return res.status(400).json({
-                valid: false,
-                error: "Missing key"
-            });
-        }
+  if (keyData.claimed) {
+    return res.status(409).json({ success: false, message: 'Key already claimed' });
+  }
 
-        const record = keys.get(key);
-
-        if (!record) {
-            return res.json({
-                valid: false,
-                error: "Invalid key"
-            });
-        }
-
-        // Check expiration
-        if (Date.now() >= record.expiresAt) {
-            keys.delete(key);
-
-            return res.json({
-                valid: false,
-                error: "Key expired"
-            });
-        }
-
-        return res.json({
-            valid: !record.used,
-            used: record.used,
-            expiresAt: new Date(record.expiresAt).toISOString()
-        });
-
-    } catch (error) {
-        console.error("Key check error:", error);
-
-        return res.status(500).json({
-            valid: false,
-            error: "Internal server error"
-        });
-    }
+  keyData.claimed = true;
+  keyData.claimedAt = new Date();
+  res.json({ success: true, message: 'Key claimed successfully' });
 });
 
-// ==========================================
-// ADMIN GENERATE KEY
-// ==========================================
+// Public: Check key status
+app.get('/api/keys/check', (req, res) => {
+  const { key } = req.query;
+  if (!key) {
+    return res.status(400).json({ success: false, message: 'Key is required' });
+  }
 
-app.post("/api/keys/generate", (req, res) => {
-    try {
-        const token = req.headers["x-admin-token"];
+  const keyData = keys.get(key);
+  if (!keyData) {
+    return res.status(404).json({ success: false, message: 'Key not found' });
+  }
 
-        if (!token || token !== ADMIN_TOKEN) {
-            return res.status(401).json({
-                success: false,
-                error: "Unauthorized"
-            });
-        }
-
-        const hours = Number(req.body?.hours ?? 24);
-
-        if (!Number.isFinite(hours) || hours <= 0) {
-            return res.status(400).json({
-                success: false,
-                error: "Invalid duration"
-            });
-        }
-
-        const key = generateKey();
-
-        const createdAt = Date.now();
-        const expiresAt =
-            createdAt + hours * 60 * 60 * 1000;
-
-        keys.set(key, {
-            createdAt,
-            expiresAt,
-            used: false
-        });
-
-        return res.json({
-            success: true,
-            key,
-            expiresAt: new Date(expiresAt).toISOString(),
-            hours
-        });
-
-    } catch (error) {
-        console.error("Admin key generation error:", error);
-
-        return res.status(500).json({
-            success: false,
-            error: "Failed to generate key"
-        });
-    }
+  res.json({ 
+    success: true, 
+    key,
+    claimed: keyData.claimed,
+    createdAt: keyData.createdAt,
+    claimedAt: keyData.claimedAt || null
+  });
 });
 
-// ==========================================
-// ADMIN DELETE KEY
-// ==========================================
+// Admin: Generate keys
+app.post('/api/keys/generate', (req, res) => {
+  const { token, count = 1 } = req.body;
 
-app.post("/api/keys/delete", (req, res) => {
-    try {
-        const token = req.headers["x-admin-token"];
+  if (!validateAdminToken(token)) {
+    return res.status(403).json({ success: false, message: 'Unauthorized' });
+  }
 
-        if (!token || token !== ADMIN_TOKEN) {
-            return res.status(401).json({
-                success: false,
-                error: "Unauthorized"
-            });
-        }
+  const generatedKeys = [];
+  for (let i = 0; i < count; i++) {
+    const key = generateKey();
+    keys.set(key, { claimed: false, createdAt: new Date() });
+    generatedKeys.push(key);
+  }
 
-        const key = String(req.body?.key || "")
-            .trim()
-            .toUpperCase();
-
-        if (!key) {
-            return res.status(400).json({
-                success: false,
-                error: "Missing key"
-            });
-        }
-
-        const existed = keys.delete(key);
-
-        return res.json({
-            success: existed,
-            deleted: existed
-        });
-
-    } catch (error) {
-        console.error("Delete key error:", error);
-
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error"
-        });
-    }
+  res.json({ success: true, keys: generatedKeys });
 });
 
-// ==========================================
-// HEALTH CHECK
-// ==========================================
+// Admin: Delete a key
+app.post('/api/keys/delete', (req, res) => {
+  const { token, key } = req.body;
 
-app.get("/api/health", (req, res) => {
-    res.json({
-        online: true,
-        service: "Eclipse Hub Key System",
-        uptime: process.uptime()
-    });
+  if (!validateAdminToken(token)) {
+    return res.status(403).json({ success: false, message: 'Unauthorized' });
+  }
+
+  if (!key) {
+    return res.status(400).json({ success: false, message: 'Key is required' });
+  }
+
+  if (keys.has(key)) {
+    keys.delete(key);
+    res.json({ success: true, message: 'Key deleted' });
+  } else {
+    res.status(404).json({ success: false, message: 'Key not found' });
+  }
 });
 
-// ==========================================
-// UNKNOWN API ROUTES
-// ==========================================
-
-app.use("/api", (req, res) => {
-    res.status(404).json({
-        success: false,
-        error: "API endpoint not found"
-    });
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date() });
 });
 
-// ==========================================
-// START SERVER
-// ==========================================
+// 404 handler for unknown API routes
+app.use('/api', (req, res) => {
+  res.status(404).json({ success: false, message: 'API endpoint not found' });
+});
 
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`✅ Eclipse Hub Key System running on port ${PORT}`);
-    console.log(`🌐 Port: ${PORT}`);
+// Catch-all for other routes (serve index.html for SPA support)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Error handling
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ success: false, message: 'Internal server error' });
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`Eclipse Hub Key System running on port ${PORT}`);
 });
