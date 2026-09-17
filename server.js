@@ -8,7 +8,10 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'your-secure-token-here';
 
 // Middleware
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Serve static files from public folder (one level up from src/)
+const publicPath = path.join(__dirname, '..', 'public');
+app.use(express.static(publicPath));
 
 // In-memory key storage (replace with database in production)
 const keys = new Map();
@@ -27,7 +30,7 @@ function validateAdminToken(token) {
 
 // Serve index.html on root
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(publicPath, 'index.html'));
 });
 
 // Public: Generate a key (limited)
@@ -129,7 +132,7 @@ app.use('/api', (req, res) => {
 
 // Catch-all for other routes (serve index.html for SPA support)
 app.get(/.*/, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(publicPath, 'index.html'));
 });
 
 // Error handling
