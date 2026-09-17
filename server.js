@@ -4,120 +4,87 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'your-secure-token-here';
 
 // Middleware
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Serve static files from public folder (one level up from src/)
-const publicPath = path.join(__dirname, '..', 'public');
-app.use(express.static(publicPath));
+// Environment variables
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'default-admin-token';
 
-// In-memory key storage (replace with database in production)
-const keys = new Map();
+// In-memory key storage
+let keys = {};
 
-// Helper: Generate a random key
+// Helper: Generate random key
 function generateKey() {
-  return `ECLIPSE-${Math.random().toString(36).substring(2, 15)}${Math.random().toString(36).substring(2, 15)}`.toUpperCase();
+  return 'ECLIPSE-' + Math.random().toString(36).substr(2, 9).toUpperCase();
 }
 
-// Helper: Validate admin token
-function validateAdminToken(token) {
-  return token === ADMIN_TOKEN;
+// Helper: Validate key format
+function isValidKey(key) {
+  return typeof key === 'string' && key.startsWith('ECLIPSE-');
 }
 
 // Routes
 
-// Serve index.html on root
+// Serve index.html
 app.get('/', (req, res) => {
-  res.sendFile(path.join(publicPath, 'index.html'));
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Public: Generate a key (limited)
+// Public: Generate a new key
 app.post('/api/keys/public-generate', (req, res) => {
-  const key = generateKey();
-  keys.set(key, { claimed: false, createdAt: new Date() });
-  res.json({ success: true, key });
+  const newKey = generateKey();
+  keys[newKey] = { status: 'unclaimed', createdAt: new Date() };
+  res.json({ key: newKey });
 });
 
-// Public: Claim/validate a key
+// Public: Claim a key
 app.post('/api/keys/claim', (req, res) => {
-  const { key } = req.body;
-  if (!key) {
-    return res.status(400).json({ success: false, message: 'Key is required' });
+  const { key, username } = req.body;
+  if (!isValidKey(key) || !keys[key]) {
+    return res.status(400).json({ error: 'Invalid key' });
   }
-
-  const keyData = keys.get(key);
-  if (!keyData) {
-    return res.status(404).json({ success: false, message: 'Key not found' });
+  if (keys[key].status === 'claimed') {
+    return res.status(400).json({ error: 'Key already claimed' });
   }
-
-  if (keyData.claimed) {
-    return res.status(409).json({ success: false, message: 'Key already claimed' });
-  }
-
-  keyData.claimed = true;
-  keyData.claimedAt = new Date();
-  res.json({ success: true, message: 'Key claimed successfully' });
+  keys[key].status = 'claimed';
+  keys[key].username = username;
+  keys[key].claimedAt = new Date();
+  res.json({ message: 'Key claimed successfully', key: keys[key] });
 });
 
 // Public: Check key status
 app.get('/api/keys/check', (req, res) => {
   const { key } = req.query;
-  if (!key) {
-    return res.status(400).json({ success: false, message: 'Key is required' });
+  if (!isValidKey(key) || !keys[key]) {
+    return res.status(400).json({ error: 'Invalid key' });
   }
-
-  const keyData = keys.get(key);
-  if (!keyData) {
-    return res.status(404).json({ success: false, message: 'Key not found' });
-  }
-
-  res.json({ 
-    success: true, 
-    key,
-    claimed: keyData.claimed,
-    createdAt: keyData.createdAt,
-    claimedAt: keyData.claimedAt || null
-  });
+  res.json({ key, status: keys[key].status });
 });
 
-// Admin: Generate keys
+// Admin: Generate key
 app.post('/api/keys/generate', (req, res) => {
-  const { token, count = 1 } = req.body;
-
-  if (!validateAdminToken(token)) {
-    return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const { token } = req.body;
+  if (token !== ADMIN_TOKEN) {
+    return res.status(403).json({ error: 'Unauthorized' });
   }
-
-  const generatedKeys = [];
-  for (let i = 0; i < count; i++) {
-    const key = generateKey();
-    keys.set(key, { claimed: false, createdAt: new Date() });
-    generatedKeys.push(key);
-  }
-
-  res.json({ success: true, keys: generatedKeys });
+  const newKey = generateKey();
+  keys[newKey] = { status: 'unclaimed', createdAt: new Date() };
+  res.json({ key: newKey });
 });
 
-// Admin: Delete a key
+// Admin: Delete key
 app.post('/api/keys/delete', (req, res) => {
   const { token, key } = req.body;
-
-  if (!validateAdminToken(token)) {
-    return res.status(403).json({ success: false, message: 'Unauthorized' });
+  if (token !== ADMIN_TOKEN) {
+    return res.status(403).json({ error: 'Unauthorized' });
   }
-
-  if (!key) {
-    return res.status(400).json({ success: false, message: 'Key is required' });
+  if (!isValidKey(key) || !keys[key]) {
+    return res.status(400).json({ error: 'Invalid key' });
   }
-
-  if (keys.has(key)) {
-    keys.delete(key);
-    res.json({ success: true, message: 'Key deleted' });
-  } else {
-    res.status(404).json({ success: false, message: 'Key not found' });
-  }
+  delete keys[key];
+  res.json({ message: 'Key deleted' });
 });
 
 // Health check
@@ -127,18 +94,12 @@ app.get('/api/health', (req, res) => {
 
 // 404 handler for unknown API routes
 app.use('/api', (req, res) => {
-  res.status(404).json({ success: false, message: 'API endpoint not found' });
+  res.status(404).json({ error: 'API route not found' });
 });
 
-// Catch-all for other routes (serve index.html for SPA support)
+// Catch-all for non-API routes (serve index.html)
 app.get(/.*/, (req, res) => {
-  res.sendFile(path.join(publicPath, 'index.html'));
-});
-
-// Error handling
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ success: false, message: 'Internal server error' });
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Start server
